@@ -103,7 +103,7 @@
     intro: 'chạm vào đây nhé',
     introSub: 'bật tiếng lên nhé ♪',
     words: ['Người', 'lạ', 'quen'], // chữ thứ hai bị gạch, chữ thứ ba viết thay vào
-    wish: 'Chúc người quen một ngày vui vẻ', // dòng chúc hiện sau "Người quen", rồi bay lên thành trái tim
+    wish: 'Chúc người quen một ngày vui vẻ', // dòng chúc hiện sau "Người quen", rồi tan lên trời thành chòm sao hình trái tim
     hint: 'chạm vào bầu trời ✦',
     replay: 'xem lại',
     music: '',                      // để trống = nhạc hộp nhạc tự viết khớp từng cảnh; hoặc 'nhac.mp3' đặt cùng thư mục để thay bằng bài hát
@@ -127,8 +127,8 @@
     strike: 7.2, strikeDur: 0.6,
     shift: 8.2, shiftDur: 1.1,
     pen: 9.5, penDur: 1.8, penFly: 1.4,
-    wish: 14.2, wishGlyph: 16.4, heart: 19.4, glide: 1.4, beat: 21.1,
-    end: 23.2,
+    wish: 14.2, wishGlyph: 16.4, heart: 19.4, glide: 1.4, cons: 21.4, seg: 0.22,
+    end: 24.4,
   };
 
   const cv = document.getElementById('sky');
@@ -173,17 +173,6 @@
     x.fillRect(0, 0, n, n);
     SPR[k] = c;
   }
-  {
-    const n = 128, c = document.createElement('canvas');
-    c.width = c.height = n;
-    const x = c.getContext('2d'), gr = x.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
-    gr.addColorStop(0, 'rgba(255,140,170,0.55)');
-    gr.addColorStop(0.45, 'rgba(255,120,160,0.18)');
-    gr.addColorStop(1, 'rgba(255,120,160,0)');
-    x.fillStyle = gr;
-    x.fillRect(0, 0, n, n);
-    SPR.bloom = c;
-  }
   const mix = (a, b, t) => `${Math.round(lerp(a[0], b[0], t))},${Math.round(lerp(a[1], b[1], t))},${Math.round(lerp(a[2], b[2], t))}`;
 
   /* ---------- trạng thái ---------- */
@@ -194,8 +183,8 @@
     parts: [], sparks: [], meteors: [], timers: [],
     text: null, off: 0, hoverOn: false, gatherOn: false,
     penT: [], penPtr: 0, penStar: false, nextAmbient: Infinity,
-    aStrike: false, aPen: -1, aBeatPh: -1, aBeats: 0,
-    wishOn: false, heartOn: false, heartSpark: false, glide: 0, hscale: 1, pulse: 0, warm: 0,
+    aStrike: false, aPen: -1,
+    wishOn: false, heartOn: false, glide: 0, aSeg: -1,
   });
   let S = fresh();
   let FREEZE = false;
@@ -440,7 +429,7 @@
       out[0] = w.xs[li] + ex * w.F;
       out[1] = w.y0 + S.glide + li * w.lh + ey * w.F;
     } else {
-      const r = t.heartR * S.hscale;
+      const r = t.heartR;
       out[0] = t.heartC.x + ex * r;
       out[1] = t.heartC.y + ey * r;
     }
@@ -449,7 +438,7 @@
     const t = S.text;
     if (p.grp <= 2) return t.dotEm * t.F;
     if (p.grp === 3) return t.wish.dotEm * t.wish.F;
-    return t.heart.stepU * t.heartR * (p.hk ? 2.1 : 2.5);
+    return (9 + 8 * CONS[p.hk][2]) * U;
   }
   function spring(p, tg, K, dt) {
     const C = 2 * Math.sqrt(K) * 0.82;
@@ -458,23 +447,18 @@
   }
 
   /* ---------- dòng chúc + trái tim ---------- */
-  const HEART = (() => {
-    const pts = [];
-    for (let i = 0; i < 240; i++) {
-      const a = (i / 240) * TAU;
-      pts.push([16 * Math.pow(Math.sin(a), 3), -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a))]);
-    }
+  // chòm sao hình trái tim: 10 vì sao trên đường cong trái tim, lệch nhẹ cho tự nhiên
+  const CONS = (() => {
+    const hx = (a) => 16 * Math.pow(Math.sin(a), 3);
+    const hy = (a) => -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a));
     let lo = Infinity, hi = -Infinity;
-    for (const q of pts) { lo = Math.min(lo, q[1]); hi = Math.max(hi, q[1]); }
+    for (let i = 0; i < 240; i++) { const y = hy((i / 240) * TAU); lo = Math.min(lo, y); hi = Math.max(hi, y); }
     const mid = (lo + hi) / 2;
-    for (const q of pts) q[1] -= mid;
-    return pts;
+    const A = [0, 0.5, 1.05, 1.6, 2.25, Math.PI, TAU - 2.25, TAU - 1.6, TAU - 1.05, TAU - 0.5];
+    const J = [[0, 0.6], [0.5, -0.4], [-0.3, -0.6], [0.6, 0.2], [0.4, 0.5], [0, 0.3], [-0.5, 0.4], [-0.4, -0.1], [0.2, -0.5], [-0.6, -0.3]];
+    const M = [0.85, 0.5, 1, 0.6, 0.55, 0.95, 0.6, 0.7, 0.9, 0.45];
+    return A.map((a, i) => [hx(a) + J[i][0], hy(a) - mid + J[i][1], M[i]]);
   })();
-  function heartPath(g, cx, cy, r) {
-    g.beginPath();
-    HEART.forEach(([x, y], i) => (i ? g.lineTo(cx + x * r, cy + y * r) : g.moveTo(cx + x * r, cy + y * r)));
-    g.closePath();
-  }
   function splitWish() {
     const text = CONFIG.wish.trim(), words = text.split(/\s+/);
     mctx.font = fontStr(100);
@@ -501,49 +485,16 @@
     w.xs = w.lines.map((l) => CX - mctx.measureText(l).width / 2);
     w.y0 = CY - blockH / 2 + F * 0.9;
     // bố cục cuối: trái tim ở trên, dòng chúc ở dưới
-    const hw = Math.min(0.52 * W, 0.27 * H, 320), hh = hw * 0.92;
-    const gap = Math.max(0.05 * H, F * 0.6);
+    const hw = Math.min(0.34 * W, 0.18 * H, 210), hh = hw * 0.92;
+    const gap = Math.max(0.045 * H, F * 0.55);
     const top = CY - (hh + gap + blockH) / 2;
     t.heartC = { x: CX, y: top + hh / 2 };
     t.heartR = hw / 32;
     w.y1 = top + hh + gap + F * 0.9;
-    w.G = w.lines.map((l) => glyph(l, F, 'rgb(255,238,222)', 'rgba(255,150,160,0.95)'));
-  }
-  function sampleHeart(target) {
-    const R = 10, w = 360, h = 330, cx = w / 2, cy = h / 2;
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const g = c.getContext('2d', { willReadFrequently: true });
-    g.fillStyle = '#fff';
-    heartPath(g, cx, cy, R);
-    g.fill();
-    const d = g.getImageData(0, 0, w, h).data;
-    const grid = (step) => {
-      const pts = [];
-      let row = 0;
-      for (let y = step / 2; y < h; y += step * 0.866, row++) {
-        for (let x = (row % 2 ? step / 2 : 0) + step / 4; x < w; x += step) {
-          if (d[((y | 0) * w + (x | 0)) * 4 + 3] > 200) {
-            pts.push([(x - cx + rand(-0.32, 0.32) * step) / R, (y - cy + rand(-0.32, 0.32) * step) / R]);
-          }
-        }
-      }
-      return pts;
-    };
-    const step = clamp(2 * Math.sqrt(grid(2).length / target), 2, 40);
-    const inner = grid(step), edge = [];
-    const sp = (step / R) * 0.62;
-    let acc = 0;
-    for (let i = 0; i < HEART.length; i++) {
-      const a = HEART[i], b = HEART[(i + 1) % HEART.length];
-      const seg = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-6;
-      while (acc <= seg) { const u = acc / seg; edge.push([lerp(a[0], b[0], u), lerp(a[1], b[1], u)]); acc += sp; }
-      acc -= seg;
-    }
-    return { inner, edge, stepU: step / R };
+    w.G = w.lines.map((l) => glyph(l, F, 'rgb(255,240,226)', 'rgba(255,190,130,0.85)'));
   }
   // chuyển một nhóm hạt sang hình mới; thiếu hạt thì nhân bản, thừa thì cho tan đi
-  function reassign(pool, targets, delayFn, kickFn) {
+  function reassign(pool, targets, delayFn, kickFn, release) {
     if (!pool.length) return;
     for (let i = pool.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
     const base = pool.length;
@@ -555,7 +506,10 @@
       pool.push(p);
     }
     const chosen = pool.slice(0, targets.length);
-    for (const p of pool.slice(targets.length)) p.mode = 'fade';
+    for (const p of pool.slice(targets.length)) {
+      p.mode = 'fade';
+      if (release) { p.vy -= rand(0.05, 0.2) * D; p.vx += rand(-0.06, 0.06) * D; p.fk = 1.9; }
+    }
     chosen.sort((a, b) => a.x + a.seed - (b.x + b.seed));
     targets.sort((a, b) => a.x - b.x);
     const n = targets.length;
@@ -587,19 +541,9 @@
   function startHeart() {
     const t = S.text;
     const pool = S.parts.filter((p) => p.mode === 'seek' && p.grp === 3);
-    const hs = sampleHeart(Math.max(200, pool.length * 0.8));
-    t.heart = { stepU: hs.stepU };
-    const targets = [];
-    for (const q of hs.inner) targets.push({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: Math.random() < 0.8 ? 'rose' : 'peach', tb: 0.8, hk: 0 });
-    for (const q of hs.edge) targets.push({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: 'peach', tb: 1, hk: 1 });
-    reassign(pool, targets, () => rand(0, 1.1), () => rand(0.4, 1.0) * t.wish.F);
-    gliss(PENTA, 1.3, 0.06);
-  }
-  // nhịp tim "thình-thịch" mỗi 1,3 giây
-  function beatPulse(tb) {
-    const ph = (((tb - TL.beat) % HB) + HB) % HB;
-    const bump = (x, c) => Math.exp(-Math.pow((x - c) / 0.07, 2));
-    return bump(ph, 0) + bump(ph, HB) + 0.55 * bump(ph, 0.25);
+    const targets = CONS.map((q, i) => ({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: 'warm', tb: 1, hk: i }));
+    reassign(pool, targets, () => rand(0.1, 0.7), () => rand(0.4, 1.0) * t.wish.F, true);
+    gliss([86, 90, 93, 98], 1.2, 0.04);
   }
   function strikePt(u, out) {
     const t = S.text, y0 = -t.xh * 0.5;
@@ -676,7 +620,7 @@
         const dr = Math.exp(-1.5 * dt);
         p.vx *= dr;
         p.vy = p.vy * dr - 0.02 * D * dt;
-        p.b *= Math.exp(-1.2 * dt);
+        p.b *= Math.exp(-(p.fk || 1.2) * dt);
         if (p.b < 0.02) { ps[i] = ps[ps.length - 1]; ps.pop(); continue; }
       }
       p.x += p.vx * dt;
@@ -712,7 +656,6 @@
   }
 
   /* ---------- âm thanh: hộp nhạc + hiệu ứng, tự tổng hợp bằng Web Audio ---------- */
-  const HB = 1.5;                       // chu kỳ tim đập = 2 phách nhạc
   const BEAT = 0.75, BAR = BEAT * 4;    // 80 BPM
   const BED_DELAY = 1.6;                // nhạc nền vào sau tiếng nổ
   const PENTA = [74, 76, 78, 81, 83, 86, 88, 90, 93, 95, 98];
@@ -974,21 +917,6 @@
     bp.connect(g);
     g.connect(AU.sfx);
   }
-  function heartThump(vel) {
-    if (!AU.live) return;
-    const ac = AU.ac, t = now() + 0.005, o = ac.createOscillator(), lp = ac.createBiquadFilter(), g = ac.createGain();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(78, t);
-    o.frequency.exponentialRampToValueAtTime(46, t + 0.14);
-    lp.type = 'lowpass';
-    lp.frequency.value = 320;
-    env(g, t, vel, 0.012, 0.26);
-    o.connect(lp);
-    lp.connect(g);
-    g.connect(AU.sfx);
-    o.start(t);
-    o.stop(t + 0.35);
-  }
   // nhạc nền sau tiếng nổ: hộp nhạc 8 ô nhịp D – A/C# – Bm – G – D – A – G – A, lặp 4 lần
   function bedStart(delay) {
     if (!AU.live) return;
@@ -1116,33 +1044,12 @@
     if (t.wish) S.glide = (t.wish.y1 - t.wish.y0) * easeInOut(win(tb, TL.heart, TL.heart + TL.glide));
     if (!S.heartOn && tb >= TL.heart && t.wish) { S.heartOn = true; startHeart(); }
     if (S.heartOn) {
-      S.pulse = beatPulse(tb) * smooth(win(tb, TL.beat, TL.beat + 0.6));
-      S.hscale = 1 + 0.07 * S.pulse;
-      if (!S.heartSpark && tb >= TL.beat + 0.1) {
-        S.heartSpark = true;
-        [74, 78, 81, 86].forEach((m, i) => bell(now() + 0.02 + i * 0.04, m, 0.09, AU.sfx));
-        gliss([98, 95, 93, 90, 88, 86], 0.8, 0.04);
-        for (let i = 0; i < 80; i++) {
-          const q = HEART[(Math.random() * HEART.length) | 0], r = t.heartR;
-          const len = Math.hypot(q[0], q[1]) || 1, v = rand(0.12, 0.34) * D;
-          addSpark(t.heartC.x + q[0] * r, t.heartC.y + q[1] * r, (q[0] / len) * v, (q[1] / len) * v,
-            rand(0.7, 1.5), rand(5, 9) * U, Math.random() < 0.5 ? 'peach' : 'warm', 1.6, 0.02);
-        }
-      }
-      if (tb >= TL.beat && S.aBeats < 40) {
-        const ph = (tb - TL.beat) % HB, fade = Math.max(0.3, 1 - S.aBeats / 14);
-        if (S.aBeatPh < 0 || ph < S.aBeatPh) { S.aBeats++; heartThump(0.55 * fade); }
-        else if (S.aBeatPh < 0.25 && ph >= 0.25) heartThump(0.33 * fade);
-        S.aBeatPh = ph;
-      }
-      if (tb >= TL.beat) {
-        S.warm += dt * 6;
-        while (S.warm >= 1) {
-          S.warm -= 1;
-          const q = HEART[(Math.random() * HEART.length) | 0], r = t.heartR * S.hscale;
-          addSpark(t.heartC.x + q[0] * r, t.heartC.y + q[1] * r, rand(-0.02, 0.02) * D, -rand(0.03, 0.08) * D,
-            rand(1.6, 2.6), rand(4, 7) * U, 'peach', 0.2, -0.004);
-        }
+      // nối các vì sao thành chòm, mỗi nét một nốt chuông khẽ
+      const k = Math.floor((tb - TL.cons) / TL.seg);
+      if (k > S.aSeg && k >= 0 && k <= CONS.length) {
+        S.aSeg = k;
+        if (k < CONS.length) bell(now() + 0.01, PENTA[2 + (k % 8)], 0.045, AU.sfx);
+        else [74, 78, 81, 86].forEach((m, i) => bell(now() + 0.05 + i * 0.09, m, 0.05, AU.sfx));
       }
     }
     if (!S.ended && tb >= TL.end) { S.ended = true; onEnd(); }
@@ -1291,8 +1198,7 @@
         sz = lerp(p.sz0, dotSize(p), k);
         if (k >= 1) {
           if (p.grp !== 4) a *= 0.82 + 0.18 * Math.sin(S.clock * (1.2 + (p.seed % 1.6)) + p.seed * 3);
-          else if (p.hk) a *= 0.85 + 0.3 * S.pulse;
-          else a *= (0.5 + 0.4 * Math.sin(S.clock * (0.9 + (p.seed % 2.2)) + p.seed * 5)) * (0.85 + 0.35 * S.pulse);
+          else a *= 0.72 + 0.28 * Math.sin(S.clock * (1.3 + CONS[p.hk][2]) + p.seed * 3);
         }
       }
       if (a < 0.01) continue;
@@ -1332,30 +1238,46 @@
     if (w && w.G) {
       // chữ sáng mờ dưới các hạt; khi hạt bay lên thành tim thì chữ hiện rõ
       let a = 0.24 * smooth(win(tb, TL.wishGlyph, TL.wishGlyph + 1));
-      a = lerp(a, 0.86, smooth(win(tb, TL.heart + 0.3, TL.heart + 1.9)));
+      a = lerp(a, 0.82, smooth(win(tb, TL.heart + 0.3, TL.heart + 1.9)));
       w.G.forEach((g, li) => blit(g, w.xs[li], w.y0 + S.glide + li * w.lh, a));
     }
   }
-  function drawHeartFx(tb) {
-    const t = S.text;
-    if (!t || !t.heart || tb < TL.beat - 0.8) return;
-    const on = smooth(win(tb, TL.beat - 0.8, TL.beat + 0.4));
-    const c = t.heartC, r = t.heartR * S.hscale;
-    const bs = 32 * r * 1.9;
-    ctx.globalAlpha = on * (0.55 + 0.35 * S.pulse);
-    ctx.drawImage(SPR.bloom, c.x - bs / 2, c.y - bs / 2, bs, bs);
-    if (tb >= TL.beat) {
-      const e = ((tb - TL.beat) % HB) / 1.3;
-      if (e < 1) {
-        ctx.globalAlpha = 0.4 * (1 - e) * (1 - e);
-        ctx.strokeStyle = `rgb(${RGB.rose})`;
-        ctx.lineWidth = 1.4 * U;
-        ctx.lineJoin = 'round';
-        heartPath(ctx, c.x, c.y, r * (1 + 0.45 * easeOut(e)));
-        ctx.stroke();
-      }
+  function drawConstellation(tb) {
+    if (!S.heartOn || tb < TL.cons) return;
+    const n = CONS.length, gap = 7 * U;
+    const pts = CONS.map((q) => { targetFor(4, 0, q[0], q[1], TG); return [TG[0], TG[1]]; });
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,236,214,0.4)';
+    ctx.lineWidth = 1.1 * U;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(255,200,150,0.6)';
+    ctx.shadowBlur = 6 * U;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const u = easeInOut((tb - TL.cons - i * TL.seg) / TL.seg);
+      if (u <= 0) break;
+      const a = pts[i], b = pts[(i + 1) % n];
+      const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1;
+      if (L < gap * 2.5) continue;
+      const ux = dx / L, uy = dy / L, sx = a[0] + ux * gap, sy = a[1] + uy * gap, len = (L - 2 * gap) * u;
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + ux * len, sy + uy * len);
     }
-    ctx.globalAlpha = 1;
+    ctx.stroke();
+    ctx.restore();
+    // vài vì sao sáng nhất có tia chữ thập nhỏ
+    ctx.lineWidth = 0.8 * U;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      const m = CONS[i][2];
+      if (m < 0.85) continue;
+      const tw = 0.6 + 0.4 * Math.sin(S.clock * 1.7 + i * 2.1), fl = (8 + 8 * m) * U * tw;
+      ctx.strokeStyle = `rgba(255,244,228,${(0.45 * tw).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(pts[i][0] - fl, pts[i][1]); ctx.lineTo(pts[i][0] + fl, pts[i][1]);
+      ctx.moveTo(pts[i][0], pts[i][1] - fl); ctx.lineTo(pts[i][0], pts[i][1] + fl);
+      ctx.stroke();
+    }
   }
 
   function drawStrike(tb) {
@@ -1461,7 +1383,7 @@
     drawStars(1 - 0.4 * smooth(k));
     ctx.globalCompositeOperation = 'lighter';
     const tb = S.T - S.tB;
-    if (S.text) { drawGlyphs(tb); drawHeartFx(tb); }
+    if (S.text) { drawGlyphs(tb); drawConstellation(tb); }
     drawParts();
     drawSparks();
     drawMainMeteor(k);
