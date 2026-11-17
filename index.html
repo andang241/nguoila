@@ -55,6 +55,7 @@
     text-shadow: 0 0 14px var(--glow);
     animation: breathe 2.8s ease-in-out infinite;
   }
+  .intro .sub { font-size: 0.7em; color: var(--ink-faint); margin-top: -6px; }
   .intro:focus-visible #introText { text-decoration: underline; text-underline-offset: 6px; }
   .intro.gone { opacity: 0; pointer-events: none; }
   @keyframes breathe {
@@ -88,6 +89,7 @@
 <div id="intro" class="intro" role="button" tabindex="0">
   <span class="spark" aria-hidden="true">✦</span>
   <span id="introText"></span>
+  <span id="introSub" class="sub"></span>
 </div>
 <p id="hint" class="hint"></p>
 <button id="replay" class="replay" type="button"></button>
@@ -99,11 +101,12 @@
   /* ================= Sửa nội dung ở đây ================= */
   const CONFIG = {
     intro: 'chạm vào đây nhé',
+    introSub: 'bật tiếng lên nhé ♪',
     words: ['Người', 'lạ', 'quen'], // chữ thứ hai bị gạch, chữ thứ ba viết thay vào
     wish: 'Chúc người quen một ngày vui vẻ', // dòng chúc hiện sau "Người quen", rồi bay lên thành trái tim
     hint: 'chạm vào bầu trời ✦',
     replay: 'xem lại',
-    music: '',                      // ví dụ 'nhac.mp3' đặt cùng thư mục; để trống = không có nhạc
+    music: '',                      // để trống = nhạc hộp nhạc tự viết khớp từng cảnh; hoặc 'nhac.mp3' đặt cùng thư mục để thay bằng bài hát
   };
   /* ====================================================== */
 
@@ -124,7 +127,7 @@
     strike: 7.2, strikeDur: 0.6,
     shift: 8.2, shiftDur: 1.1,
     pen: 9.5, penDur: 1.8, penFly: 1.4,
-    wish: 14.2, wishGlyph: 16.4, heart: 19.4, glide: 1.4, beat: 21.6,
+    wish: 14.2, wishGlyph: 16.4, heart: 19.4, glide: 1.4, beat: 21.1,
     end: 23.2,
   };
 
@@ -136,6 +139,7 @@
   const hintEl = document.getElementById('hint');
   const replayEl = document.getElementById('replay');
   document.getElementById('introText').textContent = CONFIG.intro;
+  document.getElementById('introSub').textContent = CONFIG.introSub || '';
   introEl.setAttribute('aria-label', CONFIG.intro);
   hintEl.textContent = CONFIG.hint;
   replayEl.textContent = CONFIG.replay;
@@ -190,6 +194,7 @@
     parts: [], sparks: [], meteors: [], timers: [],
     text: null, off: 0, hoverOn: false, gatherOn: false,
     penT: [], penPtr: 0, penStar: false, nextAmbient: Infinity,
+    aStrike: false, aPen: -1, aBeatPh: -1, aBeats: 0,
     wishOn: false, heartOn: false, heartSpark: false, glide: 0, hscale: 1, pulse: 0, warm: 0,
   });
   let S = fresh();
@@ -577,6 +582,7 @@
     });
     const pool = S.parts.filter((p) => p.mode === 'seek' && p.grp >= 0 && p.grp <= 2);
     reassign(pool, targets, (i, n) => 0.9 * (i / n) + rand(0, 0.35), () => rand(0.15, 0.5) * t.F);
+    gliss([74, 78, 81, 86, 90, 93], 1.0, 0.06);
   }
   function startHeart() {
     const t = S.text;
@@ -587,12 +593,13 @@
     for (const q of hs.inner) targets.push({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: Math.random() < 0.8 ? 'rose' : 'peach', tb: 0.8, hk: 0 });
     for (const q of hs.edge) targets.push({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: 'peach', tb: 1, hk: 1 });
     reassign(pool, targets, () => rand(0, 1.1), () => rand(0.4, 1.0) * t.wish.F);
+    gliss(PENTA, 1.3, 0.06);
   }
   // nhịp tim "thình-thịch" mỗi 1,3 giây
   function beatPulse(tb) {
-    const ph = (((tb - TL.beat) % 1.3) + 1.3) % 1.3;
+    const ph = (((tb - TL.beat) % HB) + HB) % HB;
     const bump = (x, c) => Math.exp(-Math.pow((x - c) / 0.07, 2));
-    return bump(ph, 0) + bump(ph, 1.3) + 0.55 * bump(ph, 0.25);
+    return bump(ph, 0) + bump(ph, HB) + 0.55 * bump(ph, 0.25);
   }
   function strikePt(u, out) {
     const t = S.text, y0 = -t.xh * 0.5;
@@ -704,6 +711,310 @@
     }
   }
 
+  /* ---------- âm thanh: hộp nhạc + hiệu ứng, tự tổng hợp bằng Web Audio ---------- */
+  const HB = 1.5;                       // chu kỳ tim đập = 2 phách nhạc
+  const BEAT = 0.75, BAR = BEAT * 4;    // 80 BPM
+  const BED_DELAY = 1.6;                // nhạc nền vào sau tiếng nổ
+  const PENTA = [74, 76, 78, 81, 83, 86, 88, 90, 93, 95, 98];
+  const PROG = [[50, 54, 57], [49, 52, 57], [47, 50, 54], [43, 47, 50], [50, 54, 57], [45, 49, 52], [43, 47, 50], [45, 49, 52]];
+  const MEL = [
+    [[0, 78], [1.5, 76], [2, 78], [3, 81]],
+    [[0, 76], [2, 73], [3, 76]],
+    [[0, 74], [1, 78], [2, 83], [3, 81]],
+    [[0, 79], [2, 83], [3, 81]],
+    [[0, 78], [1, 81], [2, 86], [3, 85]],
+    [[0, 83], [1, 81], [2, 76], [3.5, 78]],
+    [[0, 86], [1, 83], [2, 79], [3, 78]],
+    [[0, 76], [1.5, 78], [2, 81], [3, 85]],
+  ];
+  const KEYS = { D: [2, 6, 9], G: [7, 11, 2], A: [9, 1, 4] };
+  const AU = { ac: null, live: false, pad: null, padKey: '', bedOn: false, bedNext: 0, bedBar: 0, arpAcc: 0.6, arpI: 0 };
+  const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const now = () => (AU.live ? AU.ac.currentTime : 0);
+  const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  function impulse(ac, sec) {
+    const len = Math.floor(ac.sampleRate * sec), b = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+    }
+    return b;
+  }
+  function audioInit() {
+    if (AU.ac) { unlockAudio(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* bỏ qua */ }
+    let ac;
+    try { ac = new AC(); } catch (e) { return; }
+    AU.ac = ac;
+    const master = ac.createGain();
+    master.gain.value = 0.85;
+    const comp = ac.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.ratio.value = 3; comp.attack.value = 0.005; comp.release.value = 0.25;
+    const post = ac.createGain();
+    post.gain.value = 1.6;
+    master.connect(comp);
+    comp.connect(post);
+    post.connect(ac.destination);
+    AU.out = post;
+    const rev = ac.createConvolver();
+    rev.buffer = impulse(ac, 3.2);
+    const wet = ac.createGain();
+    wet.gain.value = 0.45;
+    rev.connect(wet);
+    wet.connect(master);
+    const bus = ac.createGain();
+    bus.connect(master);
+    bus.connect(rev);
+    AU.music = ac.createGain();
+    AU.music.gain.value = CONFIG.music ? 0 : 1;
+    AU.music.connect(bus);
+    AU.sfx = ac.createGain();
+    AU.sfx.gain.value = CONFIG.music ? 0.5 : 0.9;
+    AU.sfx.connect(bus);
+    const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), ch = nb.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+    AU.noise = nb;
+    const src = ac.createBufferSource();
+    src.buffer = nb;
+    src.loop = true;
+    AU.whooshF = ac.createBiquadFilter();
+    AU.whooshF.type = 'bandpass';
+    AU.whooshF.frequency.value = 400;
+    AU.whooshF.Q.value = 0.9;
+    AU.whoosh = ac.createGain();
+    AU.whoosh.gain.value = 0;
+    src.connect(AU.whooshF);
+    AU.whooshF.connect(AU.whoosh);
+    AU.whoosh.connect(AU.sfx);
+    src.start();
+    AU.live = true;
+    if (isIOS && !navigator.audioSession) silentLoop();
+    unlockAudio();
+  }
+  function unlockAudio() {
+    const ac = AU.ac;
+    if (!ac) return;
+    if (ac.state !== 'running') { const p = ac.resume(); if (p && p.catch) p.catch(() => {}); }
+    try { const b = ac.createBuffer(1, 1, 22050), x = ac.createBufferSource(); x.buffer = b; x.connect(ac.destination); x.start(0); } catch (e) { /* bỏ qua */ }
+    if (AU.silent && AU.silent.paused) { const p = AU.silent.play(); if (p && p.catch) p.catch(() => {}); }
+  }
+  // iPhone cũ đang gạt chế độ im lặng: giữ một vòng âm thanh câm để Web Audio vẫn phát
+  function silentLoop() {
+    try {
+      const n = 4000, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+      const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      w(36, 'data'); v.setUint32(40, n * 2, true);
+      const el = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+      el.loop = true;
+      el.setAttribute('playsinline', '');
+      AU.silent = el;
+    } catch (e) { AU.silent = null; }
+  }
+  function audioReset() {
+    if (AU.live) {
+      padTo(null, now());
+      AU.whoosh.gain.cancelScheduledValues(now());
+      AU.whoosh.gain.setTargetAtTime(0, now(), 0.1);
+    }
+    Object.assign(AU, { padKey: '', bedOn: false, bedNext: 0, bedBar: 0, arpAcc: 0.6, arpI: 0 });
+  }
+  function env(g, t, peak, a, d) {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+  }
+  function noiseSrc(t, dur, offset) {
+    const x = AU.ac.createBufferSource();
+    x.buffer = AU.noise;
+    x.start(t, offset == null ? Math.random() * 1.5 : offset, dur);
+    return x;
+  }
+  // một nốt hộp nhạc: âm gốc + bồi âm quãng tám + tiếng "ting" kim loại rất ngắn
+  function bell(t, midi, vel, out) {
+    if (!AU.live) return;
+    const ac = AU.ac, f = mtof(midi), dur = clamp(3.4 - (midi - 60) * 0.07, 0.8, 3.4);
+    out = out || AU.music;
+    const parts = [[1, 1, dur], [2, 0.3, dur * 0.3], [4.2, 0.1, 0.09]];
+    for (const [mul, amp, d] of parts) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = f * mul;
+      env(g, t, vel * amp, 0.005, d);
+      o.connect(g);
+      g.connect(out);
+      o.start(t);
+      o.stop(t + d + 0.05);
+    }
+  }
+  function padTo(notes, t, level) {
+    if (!AU.live) return;
+    const ac = AU.ac;
+    if (AU.pad) {
+      const old = AU.pad;
+      old.g.gain.cancelScheduledValues(t);
+      old.g.gain.setTargetAtTime(0.0001, t, 0.5);
+      old.oscs.forEach((o) => o.stop(t + 3));
+      AU.pad = null;
+    }
+    if (!notes) return;
+    const lp = ac.createBiquadFilter(), g = ac.createGain();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    lp.Q.value = 0.3;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.setTargetAtTime(level, t, 0.7);
+    lp.connect(g);
+    g.connect(AU.music);
+    const oscs = [];
+    for (const m of notes) {
+      for (const det of [-7, 7]) {
+        const o = ac.createOscillator();
+        o.type = 'triangle';
+        o.frequency.value = mtof(m);
+        o.detune.value = det;
+        o.connect(lp);
+        o.start(t);
+        oscs.push(o);
+      }
+    }
+    AU.pad = { g, lp, oscs };
+  }
+  // pha sao băng: leng keng thưa rồi dồn dập, hợp âm D → G → A, gió mạnh dần
+  function audioMeteor(dt, sn) {
+    if (!AU.live) return;
+    const t = now(), key = sn > 0.78 ? 'A' : sn > 0.45 ? 'G' : 'D';
+    if (key !== AU.padKey) {
+      AU.padKey = key;
+      padTo(key === 'D' ? [50, 57, 62, 66] : key === 'G' ? [43, 50, 55, 59] : [45, 52, 57, 61], t, 0.016 + 0.01 * sn);
+    }
+    if (AU.pad) AU.pad.lp.frequency.setTargetAtTime(700 + 2600 * sn, t, 0.15);
+    AU.whoosh.gain.setTargetAtTime(0.015 + 0.25 * sn * sn, t, 0.1);
+    AU.whooshF.frequency.setTargetAtTime(300 + 3200 * sn, t, 0.12);
+    AU.arpAcc += dt / lerp(0.6, 0.075, Math.pow(sn, 0.6));
+    if (AU.arpAcc >= 1) {
+      AU.arpAcc = Math.min(AU.arpAcc - 1, 0.5);
+      const pcs = KEYS[key], ladder = [];
+      for (let m = 62; m <= 100; m++) if (pcs.includes(m % 12)) ladder.push(m);
+      const lo = Math.floor(sn * (ladder.length - 6));
+      bell(t + 0.01, ladder[lo + (AU.arpI++ % 6)], 0.06 + 0.07 * sn);
+    }
+  }
+  function sfxInhale() {
+    if (!AU.live) return;
+    const ac = AU.ac, t = now(), d = TL.inhale;
+    padTo(null, t);
+    AU.whoosh.gain.cancelScheduledValues(t);
+    AU.whoosh.gain.setTargetAtTime(0.3, t, d * 0.4);
+    AU.whooshF.frequency.cancelScheduledValues(t);
+    AU.whooshF.frequency.setTargetAtTime(5200, t, d * 0.4);
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(500, t);
+    o.frequency.exponentialRampToValueAtTime(2000, t + d);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + d * 0.95);
+    g.gain.linearRampToValueAtTime(0, t + d + 0.03);
+    o.connect(g);
+    g.connect(AU.sfx);
+    o.start(t);
+    o.stop(t + d + 0.05);
+  }
+  function sfxBoom(size) {
+    if (!AU.live) return;
+    const ac = AU.ac, t = now() + 0.005;
+    if (size >= 1) { AU.whoosh.gain.cancelScheduledValues(t); AU.whoosh.gain.setTargetAtTime(0, t, 0.03); }
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(110, t);
+    o.frequency.exponentialRampToValueAtTime(34, t + 0.7);
+    env(g, t, 0.9 * size, 0.008, 1.3);
+    o.connect(g);
+    g.connect(AU.sfx);
+    o.start(t);
+    o.stop(t + 1.5);
+    const n = noiseSrc(t, 1.9, 0), lp = ac.createBiquadFilter(), g2 = ac.createGain();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2400, t);
+    lp.frequency.exponentialRampToValueAtTime(160, t + 1.4);
+    env(g2, t, 0.55 * size, 0.005, 1.6);
+    n.connect(lp);
+    lp.connect(g2);
+    g2.connect(AU.sfx);
+    const k = Math.round(60 * size);
+    for (let i = 0; i < k; i++) crackle(t + 0.45 + Math.pow(Math.random(), 0.7) * 1.9, rand(0.03, 0.12) * size);
+  }
+  function crackle(t, vel) {
+    const ac = AU.ac, x = noiseSrc(t, 0.03), hp = ac.createBiquadFilter(), g = ac.createGain();
+    hp.type = 'highpass';
+    hp.frequency.value = rand(2000, 5000);
+    env(g, t, vel, 0.001, 0.025);
+    x.connect(hp);
+    hp.connect(g);
+    g.connect(AU.sfx);
+  }
+  function gliss(notes, dur, vel) {
+    if (!AU.live) return;
+    const t = now() + 0.02;
+    notes.forEach((m, i) => bell(t + (i / notes.length) * dur, m, vel, AU.sfx));
+  }
+  function swish(dur, f0, f1, vel) {
+    if (!AU.live) return;
+    const ac = AU.ac, t = now() + 0.005, x = noiseSrc(t, dur + 0.05), bp = ac.createBiquadFilter(), g = ac.createGain();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(f0, t);
+    bp.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vel, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    x.connect(bp);
+    bp.connect(g);
+    g.connect(AU.sfx);
+  }
+  function heartThump(vel) {
+    if (!AU.live) return;
+    const ac = AU.ac, t = now() + 0.005, o = ac.createOscillator(), lp = ac.createBiquadFilter(), g = ac.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(78, t);
+    o.frequency.exponentialRampToValueAtTime(46, t + 0.14);
+    lp.type = 'lowpass';
+    lp.frequency.value = 320;
+    env(g, t, vel, 0.012, 0.26);
+    o.connect(lp);
+    lp.connect(g);
+    g.connect(AU.sfx);
+    o.start(t);
+    o.stop(t + 0.35);
+  }
+  // nhạc nền sau tiếng nổ: hộp nhạc 8 ô nhịp D – A/C# – Bm – G – D – A – G – A, lặp 4 lần
+  function bedStart(delay) {
+    if (!AU.live) return;
+    AU.bedOn = true;
+    AU.bedBar = 0;
+    AU.bedNext = now() + delay;
+  }
+  function bedTick() {
+    if (!AU.live || !AU.bedOn) return;
+    while (AU.bedOn && AU.bedNext < now() + 0.3) {
+      const t0 = AU.bedNext, i = AU.bedBar % 8, [r, th, f] = PROG[i];
+      padTo([r, th, f, r + 12], t0, 0.018);
+      [r + 12, f + 12, th + 24, f + 12, r + 24, f + 12, th + 24, f + 12].forEach((m, k) => bell(t0 + (k * BEAT) / 2, m, k % 2 ? 0.035 : 0.05));
+      for (const [b, m] of MEL[i]) bell(t0 + b * BEAT, m, 0.14);
+      AU.bedBar++;
+      AU.bedNext += BAR;
+      if (AU.bedBar >= 32) { AU.bedOn = false; padTo(null, AU.bedNext); }
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!AU.ac) return;
+    const p = document.hidden ? AU.ac.suspend() : AU.ac.resume();
+    if (p && p.catch) p.catch(() => {});
+  });
+  ['pointerup', 'touchend', 'click'].forEach((ev) => window.addEventListener(ev, () => { if (AU.ac) unlockAudio(); }, { passive: true }));
+
   /* ---------- dòng thời gian ---------- */
   const P1 = { x: 0, y: 0 }, P2 = { x: 0, y: 0 }, P3 = { x: 0, y: 0 };
 
@@ -715,10 +1026,12 @@
     prepareText();
     const n01 = S.text.P[0].length + S.text.P[1].length;
     burst(CX, CY, Math.ceil(n01 * 1.12), 1.05 * D, ['warm', 'gold'], true);
+    sfxBoom(1);
+    bedStart(BED_DELAY);
     const sec = Math.round(clamp(n01 * 0.28, 60, 260));
-    later(0.42, () => burst(CX - 0.25 * W, CY - 0.17 * H, sec, 0.6 * D, ['rose', 'peach'], false));
-    later(0.8, () => burst(CX + 0.26 * W, CY - 0.06 * H, sec, 0.58 * D, ['sky', 'lilac'], false));
-    later(1.18, () => burst(CX - 0.04 * W, CY + 0.2 * H, sec, 0.55 * D, ['gold', 'warm'], false));
+    later(0.42, () => { burst(CX - 0.25 * W, CY - 0.17 * H, sec, 0.6 * D, ['rose', 'peach'], false); sfxBoom(0.45); });
+    later(0.8, () => { burst(CX + 0.26 * W, CY - 0.06 * H, sec, 0.58 * D, ['sky', 'lilac'], false); sfxBoom(0.4); });
+    later(1.18, () => { burst(CX - 0.04 * W, CY + 0.2 * H, sec, 0.55 * D, ['gold', 'warm'], false); sfxBoom(0.4); });
   }
 
   function assign() {
@@ -746,6 +1059,7 @@
       p.mode = 'seek'; p.grp = q.g; p.ex = q.ex; p.ey = q.ey;
       p.sAge = 0; p.delay = 0.55 * (i / n) + rand(0, 0.45); p.tb = 1; p.sz0 = p.sz;
     }
+    gliss(PENTA.slice(0, 9), 1.4, 0.06);
   }
 
   function textPhases(tb, dt) {
@@ -757,6 +1071,11 @@
     if (!S.gatherOn && tb >= TL.gather) { S.gatherOn = true; assign(); }
     S.off = t.off0 * (1 - easeInOut(win(tb, TL.shift, TL.shift + TL.shiftDur)));
 
+    if (!S.aStrike && tb >= TL.strike) { S.aStrike = true; swish(TL.strikeDur, 1800, 6000, 0.09); gliss([81, 78], 0.3, 0.08); }
+    if (tb >= TL.pen && tb <= TL.pen + TL.penDur) {
+      const k = Math.floor(win(tb, TL.pen, TL.pen + TL.penDur) * 8);
+      if (k > S.aPen && k < 8) { S.aPen = k; bell(now() + 0.01, PENTA[k + 1], 0.09, AU.sfx); }
+    }
     // gạch chữ "lạ": hạt nào bị nét gạch đi qua thì run lên rồi mờ đi
     if (tb >= TL.strike && tb < TL.strike + TL.strikeDur + 0.2) {
       strikePt(easeOut(win(tb, TL.strike, TL.strike + TL.strikeDur)), P3);
@@ -787,6 +1106,8 @@
     }
     if (!S.penStar && tb >= TL.pen + TL.penDur + TL.penFly) {
       S.penStar = true;
+      bell(now() + 0.01, 98, 0.1, AU.sfx);
+      bell(now() + 0.13, 93, 0.07, AU.sfx);
       const h = penHome(), dx = h.x - CX, dy = h.y - CY;
       stars.push({ r: Math.hypot(dx, dy), th: Math.atan2(dy, dx) - S.skyAngle, sz: 1.9, a: 0.95, tw: 1.4, ph: 0, rgb: 'rgb(255,228,196)', big: true, mine: true });
     }
@@ -799,12 +1120,20 @@
       S.hscale = 1 + 0.07 * S.pulse;
       if (!S.heartSpark && tb >= TL.beat + 0.1) {
         S.heartSpark = true;
+        [74, 78, 81, 86].forEach((m, i) => bell(now() + 0.02 + i * 0.04, m, 0.09, AU.sfx));
+        gliss([98, 95, 93, 90, 88, 86], 0.8, 0.04);
         for (let i = 0; i < 80; i++) {
           const q = HEART[(Math.random() * HEART.length) | 0], r = t.heartR;
           const len = Math.hypot(q[0], q[1]) || 1, v = rand(0.12, 0.34) * D;
           addSpark(t.heartC.x + q[0] * r, t.heartC.y + q[1] * r, (q[0] / len) * v, (q[1] / len) * v,
             rand(0.7, 1.5), rand(5, 9) * U, Math.random() < 0.5 ? 'peach' : 'warm', 1.6, 0.02);
         }
+      }
+      if (tb >= TL.beat && S.aBeats < 40) {
+        const ph = (tb - TL.beat) % HB, fade = Math.max(0.3, 1 - S.aBeats / 14);
+        if (S.aBeatPh < 0 || ph < S.aBeatPh) { S.aBeats++; heartThump(0.55 * fade); }
+        else if (S.aBeatPh < 0.25 && ph >= 0.25) heartThump(0.33 * fade);
+        S.aBeatPh = ph;
       }
       if (tb >= TL.beat) {
         S.warm += dt * 6;
@@ -834,8 +1163,9 @@
       m.on = true;
       m.v = speedAt(m.s);
       m.s += m.v * dt;
-      if (m.s >= path.L) { m.s = path.L; m.arrived = true; m.tA = T; }
+      if (m.s >= path.L) { m.s = path.L; m.arrived = true; m.tA = T; sfxInhale(); }
       m.sn = normAt(m.s);
+      if (!m.arrived) audioMeteor(dt, m.sn);
       m.emit += (20 + 240 * m.sn) * dt;
       if (m.emit >= 1) {
         pathAt(m.s, P1);
@@ -876,6 +1206,7 @@
 
     if (S.ended && T >= S.nextAmbient) {
       spawnMeteor();
+      bell(now() + 0.02, PENTA[6 + ((Math.random() * 5) | 0)], 0.035, AU.sfx);
       S.nextAmbient = T + rand(4.5, 9);
     }
   }
@@ -1014,7 +1345,7 @@
     ctx.globalAlpha = on * (0.55 + 0.35 * S.pulse);
     ctx.drawImage(SPR.bloom, c.x - bs / 2, c.y - bs / 2, bs, bs);
     if (tb >= TL.beat) {
-      const e = ((tb - TL.beat) % 1.3) / 1.15;
+      const e = ((tb - TL.beat) % HB) / 1.3;
       if (e < 1) {
         ctx.globalAlpha = 0.4 * (1 - e) * (1 - e);
         ctx.strokeStyle = `rgb(${RGB.rose})`;
@@ -1188,12 +1519,12 @@
       const id = setInterval(() => { v = Math.min(0.65, v + 0.02); audio.volume = v; if (v >= 0.65) clearInterval(id); }, 90);
     } catch (e) { /* không phát được nhạc thì thôi */ }
   }
-  function start() {
+  function start(gesture) {
     if (S.started) return;
     S.started = true;
     introEl.classList.add('gone');
     setTimeout(() => { introEl.hidden = true; }, 1200);
-    startMusic();
+    if (gesture) { audioInit(); startMusic(); }
   }
   function onEnd() {
     later(1.6, () => { hintEl.classList.add('show'); replayEl.classList.add('show'); });
@@ -1204,12 +1535,15 @@
     replayEl.classList.remove('show');
     S = fresh();
     S.started = true;
+    audioReset();
   }
   window.addEventListener('pointerdown', (e) => {
     if (e.target === replayEl) return;
-    if (!S.started) { start(); return; }
+    if (!S.started) { start(true); return; }
     if (!S.ended) return;
     spawnMeteor(e.clientX, e.clientY);
+    bell(now() + 0.005, PENTA[4 + ((Math.random() * 7) | 0)], 0.12, AU.sfx);
+    swish(0.5, 3000, 900, 0.03);
     for (let i = 0; i < 14; i++) {
       const a = rand(0, TAU), v = rand(0.05, 0.22) * D;
       addSpark(e.clientX, e.clientY, Math.cos(a) * v, Math.sin(a) * v, rand(0.4, 0.9), rand(5, 9) * U, 'warm');
@@ -1217,7 +1551,7 @@
     if (!S.tapped) { S.tapped = true; hintEl.classList.remove('show'); }
   });
   introEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); start(); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); start(true); }
   });
   replayEl.addEventListener('click', (e) => { e.stopPropagation(); replay(); });
 
@@ -1230,6 +1564,7 @@
     if (dt > 0.05) dt = 0.05;
     if (dt < 0) dt = 0;
     if (!FREEZE) step(dt);
+    bedTick();
     render();
     requestAnimationFrame(frame);
   }
@@ -1241,9 +1576,10 @@
 
   // Chỉ để xem thử: ?t=15 nhảy tới giây 15, thêm &freeze để đứng hình.
   const qs = new URLSearchParams(location.search);
+  if (DEBUG) window.__dbg = { get S() { return S; }, AU, start };
   if (qs.has('t')) {
     fontReady.then(() => {
-      start();
+      start(false);
       const target = parseFloat(qs.get('t')) || 0;
       while (S.T < target) step(1 / 60);
       if (qs.has('freeze')) FREEZE = true;
