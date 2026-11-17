@@ -62,15 +62,6 @@
     50% { opacity: 1; transform: scale(1.08); }
   }
 
-  .footer {
-    position: fixed; left: 0; right: 0; top: 70%; margin: 0;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-    text-align: center; text-wrap: balance;
-    font-style: italic; font-size: clamp(18px, 1vw + 14px, 25px); letter-spacing: 0.01em;
-    color: var(--ink-soft);
-    opacity: 0; transition: opacity 2.2s ease; pointer-events: none;
-  }
   .hint {
     position: fixed; left: 0; right: 0; margin: 0;
     bottom: calc(20px + env(safe-area-inset-bottom, 0px));
@@ -98,7 +89,6 @@
   <span class="spark" aria-hidden="true">✦</span>
   <span id="introText"></span>
 </div>
-<p id="footer" class="footer"></p>
 <p id="hint" class="hint"></p>
 <button id="replay" class="replay" type="button"></button>
 
@@ -110,7 +100,7 @@
   const CONFIG = {
     intro: 'chạm vào đây nhé',
     words: ['Người', 'lạ', 'quen'], // chữ thứ hai bị gạch, chữ thứ ba viết thay vào
-    footer: '',                     // một câu nhỏ hiện dưới chữ ở cuối; để trống thì không hiện
+    wish: 'Chúc người quen một ngày vui vẻ', // dòng chúc hiện sau "Người quen", rồi bay lên thành trái tim
     hint: 'chạm vào bầu trời ✦',
     replay: 'xem lại',
     music: '',                      // ví dụ 'nhac.mp3' đặt cùng thư mục; để trống = không có nhạc
@@ -134,7 +124,8 @@
     strike: 7.2, strikeDur: 0.6,
     shift: 8.2, shiftDur: 1.1,
     pen: 9.5, penDur: 1.8, penFly: 1.4,
-    end: 12.4,
+    wish: 14.2, wishGlyph: 16.4, heart: 19.4, glide: 1.4, beat: 21.6,
+    end: 23.2,
   };
 
   const cv = document.getElementById('sky');
@@ -142,7 +133,6 @@
   const bgc = document.createElement('canvas');
   const mctx = document.createElement('canvas').getContext('2d');
   const introEl = document.getElementById('intro');
-  const footerEl = document.getElementById('footer');
   const hintEl = document.getElementById('hint');
   const replayEl = document.getElementById('replay');
   document.getElementById('introText').textContent = CONFIG.intro;
@@ -179,6 +169,17 @@
     x.fillRect(0, 0, n, n);
     SPR[k] = c;
   }
+  {
+    const n = 128, c = document.createElement('canvas');
+    c.width = c.height = n;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    gr.addColorStop(0, 'rgba(255,140,170,0.55)');
+    gr.addColorStop(0.45, 'rgba(255,120,160,0.18)');
+    gr.addColorStop(1, 'rgba(255,120,160,0)');
+    x.fillStyle = gr;
+    x.fillRect(0, 0, n, n);
+    SPR.bloom = c;
+  }
   const mix = (a, b, t) => `${Math.round(lerp(a[0], b[0], t))},${Math.round(lerp(a[1], b[1], t))},${Math.round(lerp(a[2], b[2], t))}`;
 
   /* ---------- trạng thái ---------- */
@@ -189,6 +190,7 @@
     parts: [], sparks: [], meteors: [], timers: [],
     text: null, off: 0, hoverOn: false, gatherOn: false,
     penT: [], penPtr: 0, penStar: false, nextAmbient: Infinity,
+    wishOn: false, heartOn: false, heartSpark: false, glide: 0, hscale: 1, pulse: 0, warm: 0,
   });
   let S = fresh();
   let FREEZE = false;
@@ -382,7 +384,6 @@
       glyph(w2, F, 'rgb(255,238,216)', 'rgba(255,190,120,0.95)'),
       glyph(w3, F, 'rgb(255,226,216)', 'rgba(255,140,150,0.95)'),
     ];
-    footerEl.style.top = `${t.base + F * 0.85}px`;
   }
   function sampleWord(word, F, step) {
     mctx.font = fontStr(F);
@@ -422,11 +423,176 @@
     t.qMax = S.penT.length ? Math.max(t.wQ, S.penT[S.penT.length - 1].ex) + 0.05 : t.wQ + 0.05;
     S.off = t.off0;
   }
-  function targetOf(p, out) {
+  // nhóm: 0 Người, 1 lạ, 2 quen, 3 dòng chúc, 4 trái tim
+  function targetFor(g, li, ex, ey, out) {
     const t = S.text;
-    const ox = p.grp === 0 ? t.xN : p.grp === 1 ? t.xL : t.xQ;
-    out[0] = ox + S.off + p.ex * t.F;
-    out[1] = t.base + p.ey * t.F;
+    if (g <= 2) {
+      const ox = g === 0 ? t.xN : g === 1 ? t.xL : t.xQ;
+      out[0] = ox + S.off + ex * t.F;
+      out[1] = t.base + ey * t.F;
+    } else if (g === 3) {
+      const w = t.wish;
+      out[0] = w.xs[li] + ex * w.F;
+      out[1] = w.y0 + S.glide + li * w.lh + ey * w.F;
+    } else {
+      const r = t.heartR * S.hscale;
+      out[0] = t.heartC.x + ex * r;
+      out[1] = t.heartC.y + ey * r;
+    }
+  }
+  function dotSize(p) {
+    const t = S.text;
+    if (p.grp <= 2) return t.dotEm * t.F;
+    if (p.grp === 3) return t.wish.dotEm * t.wish.F;
+    return t.heart.stepU * t.heartR * (p.hk ? 2.1 : 2.5);
+  }
+  function spring(p, tg, K, dt) {
+    const C = 2 * Math.sqrt(K) * 0.82;
+    p.vx += (K * (tg[0] - p.x) - C * p.vx) * dt;
+    p.vy += (K * (tg[1] - p.y) - C * p.vy) * dt;
+  }
+
+  /* ---------- dòng chúc + trái tim ---------- */
+  const HEART = (() => {
+    const pts = [];
+    for (let i = 0; i < 240; i++) {
+      const a = (i / 240) * TAU;
+      pts.push([16 * Math.pow(Math.sin(a), 3), -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a))]);
+    }
+    let lo = Infinity, hi = -Infinity;
+    for (const q of pts) { lo = Math.min(lo, q[1]); hi = Math.max(hi, q[1]); }
+    const mid = (lo + hi) / 2;
+    for (const q of pts) q[1] -= mid;
+    return pts;
+  })();
+  function heartPath(g, cx, cy, r) {
+    g.beginPath();
+    HEART.forEach(([x, y], i) => (i ? g.lineTo(cx + x * r, cy + y * r) : g.moveTo(cx + x * r, cy + y * r)));
+    g.closePath();
+  }
+  function splitWish() {
+    const text = CONFIG.wish.trim(), words = text.split(/\s+/);
+    mctx.font = fontStr(100);
+    const one = mctx.measureText(text).width || 1;
+    const fOne = Math.min((0.86 * W) / one * 100, 0.14 * H);
+    if (words.length < 2 || fOne >= 0.8 * S.text.F) return [text];
+    let best = null;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+      const mw = Math.max(mctx.measureText(a).width, mctx.measureText(b).width);
+      if (!best || mw < best.mw) best = { mw, lines: [a, b] };
+    }
+    return best.lines;
+  }
+  function layoutWish() {
+    const t = S.text, w = t.wish;
+    mctx.font = fontStr(100);
+    const maxW = Math.max(...w.lines.map((l) => mctx.measureText(l).width)) || 500;
+    const F = clamp(Math.min((0.86 * W) / maxW * 100, 0.11 * H), 22, 120);
+    mctx.font = fontStr(F);
+    w.F = F;
+    w.lh = F * 1.3;
+    const blockH = w.lh * (w.lines.length - 1) + F * 1.2;
+    w.xs = w.lines.map((l) => CX - mctx.measureText(l).width / 2);
+    w.y0 = CY - blockH / 2 + F * 0.9;
+    // bố cục cuối: trái tim ở trên, dòng chúc ở dưới
+    const hw = Math.min(0.52 * W, 0.27 * H, 320), hh = hw * 0.92;
+    const gap = Math.max(0.05 * H, F * 0.6);
+    const top = CY - (hh + gap + blockH) / 2;
+    t.heartC = { x: CX, y: top + hh / 2 };
+    t.heartR = hw / 32;
+    w.y1 = top + hh + gap + F * 0.9;
+    w.G = w.lines.map((l) => glyph(l, F, 'rgb(255,238,222)', 'rgba(255,150,160,0.95)'));
+  }
+  function sampleHeart(target) {
+    const R = 10, w = 360, h = 330, cx = w / 2, cy = h / 2;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#fff';
+    heartPath(g, cx, cy, R);
+    g.fill();
+    const d = g.getImageData(0, 0, w, h).data;
+    const grid = (step) => {
+      const pts = [];
+      let row = 0;
+      for (let y = step / 2; y < h; y += step * 0.866, row++) {
+        for (let x = (row % 2 ? step / 2 : 0) + step / 4; x < w; x += step) {
+          if (d[((y | 0) * w + (x | 0)) * 4 + 3] > 200) {
+            pts.push([(x - cx + rand(-0.32, 0.32) * step) / R, (y - cy + rand(-0.32, 0.32) * step) / R]);
+          }
+        }
+      }
+      return pts;
+    };
+    const step = clamp(2 * Math.sqrt(grid(2).length / target), 2, 40);
+    const inner = grid(step), edge = [];
+    const sp = (step / R) * 0.62;
+    let acc = 0;
+    for (let i = 0; i < HEART.length; i++) {
+      const a = HEART[i], b = HEART[(i + 1) % HEART.length];
+      const seg = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-6;
+      while (acc <= seg) { const u = acc / seg; edge.push([lerp(a[0], b[0], u), lerp(a[1], b[1], u)]); acc += sp; }
+      acc -= seg;
+    }
+    return { inner, edge, stepU: step / R };
+  }
+  // chuyển một nhóm hạt sang hình mới; thiếu hạt thì nhân bản, thừa thì cho tan đi
+  function reassign(pool, targets, delayFn, kickFn) {
+    if (!pool.length) return;
+    for (let i = pool.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    const base = pool.length;
+    while (pool.length < targets.length) {
+      const src = pool[(Math.random() * base) | 0];
+      const p = mkPart(src.x, src.y, 0, 0, src.spr, src.sz0, 'seek', false);
+      p.grp = src.grp; p.li = src.li; p.ex = src.ex; p.ey = src.ey; p.hk = src.hk; p.b = 0;
+      S.parts.push(p);
+      pool.push(p);
+    }
+    const chosen = pool.slice(0, targets.length);
+    for (const p of pool.slice(targets.length)) p.mode = 'fade';
+    chosen.sort((a, b) => a.x + a.seed - (b.x + b.seed));
+    targets.sort((a, b) => a.x - b.x);
+    const n = targets.length;
+    for (let i = 0; i < n; i++) {
+      const p = chosen[i], q = targets[i];
+      p.sz0 = dotSize(p);
+      p.pg = p.grp; p.pli = p.li; p.pex = p.ex; p.pey = p.ey;
+      p.grp = q.g; p.li = q.li || 0; p.ex = q.ex; p.ey = q.ey; p.hk = q.hk || 0;
+      p.mode = 'seek'; p.sAge = 0; p.delay = delayFn(i, n); p.kick = kickFn();
+      p.newSpr = q.spr; p.tb = q.tb; p.struck = false;
+    }
+  }
+  function startWish() {
+    const t = S.text;
+    t.wish = { lines: splitWish() };
+    layoutWish();
+    const w = t.wish, step = clamp(w.F / 17, 2.4, 8);
+    w.dotEm = (step * 2.6) / w.F;
+    const targets = [];
+    w.lines.forEach((l, li) => {
+      for (const q of sampleWord(l, w.F, step)) {
+        targets.push({ g: 3, li, ex: q.ex, ey: q.ey, x: w.xs[li] + q.ex * w.F, spr: Math.random() < 0.35 ? 'peach' : 'warm', tb: 1 });
+      }
+    });
+    const pool = S.parts.filter((p) => p.mode === 'seek' && p.grp >= 0 && p.grp <= 2);
+    reassign(pool, targets, (i, n) => 0.9 * (i / n) + rand(0, 0.35), () => rand(0.15, 0.5) * t.F);
+  }
+  function startHeart() {
+    const t = S.text;
+    const pool = S.parts.filter((p) => p.mode === 'seek' && p.grp === 3);
+    const hs = sampleHeart(Math.max(200, pool.length * 0.8));
+    t.heart = { stepU: hs.stepU };
+    const targets = [];
+    for (const q of hs.inner) targets.push({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: Math.random() < 0.8 ? 'rose' : 'peach', tb: 0.8, hk: 0 });
+    for (const q of hs.edge) targets.push({ g: 4, ex: q[0], ey: q[1], x: q[0], spr: 'peach', tb: 1, hk: 1 });
+    reassign(pool, targets, () => rand(0, 1.1), () => rand(0.4, 1.0) * t.wish.F);
+  }
+  // nhịp tim "thình-thịch" mỗi 1,3 giây
+  function beatPulse(tb) {
+    const ph = (((tb - TL.beat) % 1.3) + 1.3) % 1.3;
+    const bump = (x, c) => Math.exp(-Math.pow((x - c) / 0.07, 2));
+    return bump(ph, 0) + bump(ph, 1.3) + 0.55 * bump(ph, 0.25);
   }
   function strikePt(u, out) {
     const t = S.text, y0 = -t.xh * 0.5;
@@ -450,6 +616,7 @@
   const mkPart = (x, y, vx, vy, spr, sz, mode, main) => ({
     x, y, vx, vy, age: 0, b: 1, spr, sz, sz0: sz, mode, main,
     flick: false, seed: rand(0, TAU), grp: -1, ex: 0, ey: 0, delay: 0, tb: 1, sAge: 0, struck: false,
+    li: 0, pg: -1, pli: 0, pex: 0, pey: 0, newSpr: null, kick: 0, hk: 0,
   });
   function burst(x, y, n, speed, cols, main) {
     for (let i = 0; i < n; i++) {
@@ -460,8 +627,8 @@
       S.parts.push(p);
     }
   }
-  function addSpark(x, y, vx, vy, life, sz, spr, drag = 2.2) {
-    S.sparks.push({ x, y, vx, vy, age: 0, life, sz, spr, drag });
+  function addSpark(x, y, vx, vy, life, sz, spr, drag = 2.2, g = 0.04) {
+    S.sparks.push({ x, y, vx, vy, age: 0, life, sz, spr, drag, g });
   }
   function hover(p, dt) {
     const dr = Math.exp(-3 * dt);
@@ -486,12 +653,16 @@
       } else if (p.mode === 'seek') {
         p.sAge += dt;
         if (p.sAge < p.delay) {
-          hover(p, dt);
+          if (p.pg >= 0) { targetFor(p.pg, p.pli, p.pex, p.pey, TG); spring(p, TG, 16, dt); } else hover(p, dt);
         } else {
-          targetOf(p, TG);
-          const K = p.grp === 2 ? 48 : 16, C = 2 * Math.sqrt(K) * 0.82;
-          p.vx += (K * (TG[0] - p.x) - C * p.vx) * dt;
-          p.vy += (K * (TG[1] - p.y) - C * p.vy) * dt;
+          if (p.newSpr) {
+            p.spr = p.newSpr;
+            p.newSpr = null;
+            p.vy -= p.kick;
+            p.vx += rand(-0.4, 0.4) * p.kick;
+          }
+          targetFor(p.grp, p.li, p.ex, p.ey, TG);
+          spring(p, TG, p.grp === 2 ? 48 : p.grp === 4 ? 55 : 16, dt);
           p.b += (p.tb - p.b) * Math.min(1, 2.5 * dt);
         }
       } else if (p.mode === 'fade') {
@@ -513,7 +684,7 @@
       if (s.age >= s.life) { a[i] = a[a.length - 1]; a.pop(); continue; }
       const dr = Math.exp(-s.drag * dt);
       s.vx *= dr;
-      s.vy = s.vy * dr + (s.drag ? 0.04 * D * dt : 0);
+      s.vy = s.vy * dr + s.g * D * dt;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
     }
@@ -577,7 +748,7 @@
     }
   }
 
-  function textPhases(tb) {
+  function textPhases(tb, dt) {
     const t = S.text;
     if (!S.hoverOn && tb >= TL.hover) {
       S.hoverOn = true;
@@ -591,7 +762,7 @@
       strikePt(easeOut(win(tb, TL.strike, TL.strike + TL.strikeDur)), P3);
       for (const p of S.parts) {
         if (p.grp !== 1 || p.struck) continue;
-        targetOf(p, TG);
+        targetFor(p.grp, p.li, p.ex, p.ey, TG);
         if (TG[0] <= P3.x) {
           p.struck = true; p.spr = 'cool'; p.tb = 0.62;
           p.vx += rand(-0.2, 0.2) * t.F;
@@ -618,6 +789,32 @@
       S.penStar = true;
       const h = penHome(), dx = h.x - CX, dy = h.y - CY;
       stars.push({ r: Math.hypot(dx, dy), th: Math.atan2(dy, dx) - S.skyAngle, sz: 1.9, a: 0.95, tw: 1.4, ph: 0, rgb: 'rgb(255,228,196)', big: true, mine: true });
+    }
+    // "Người quen" → dòng chúc → trái tim
+    if (!S.wishOn && tb >= TL.wish && CONFIG.wish) { S.wishOn = true; startWish(); }
+    if (t.wish) S.glide = (t.wish.y1 - t.wish.y0) * easeInOut(win(tb, TL.heart, TL.heart + TL.glide));
+    if (!S.heartOn && tb >= TL.heart && t.wish) { S.heartOn = true; startHeart(); }
+    if (S.heartOn) {
+      S.pulse = beatPulse(tb) * smooth(win(tb, TL.beat, TL.beat + 0.6));
+      S.hscale = 1 + 0.07 * S.pulse;
+      if (!S.heartSpark && tb >= TL.beat + 0.1) {
+        S.heartSpark = true;
+        for (let i = 0; i < 80; i++) {
+          const q = HEART[(Math.random() * HEART.length) | 0], r = t.heartR;
+          const len = Math.hypot(q[0], q[1]) || 1, v = rand(0.12, 0.34) * D;
+          addSpark(t.heartC.x + q[0] * r, t.heartC.y + q[1] * r, (q[0] / len) * v, (q[1] / len) * v,
+            rand(0.7, 1.5), rand(5, 9) * U, Math.random() < 0.5 ? 'peach' : 'warm', 1.6, 0.02);
+        }
+      }
+      if (tb >= TL.beat) {
+        S.warm += dt * 6;
+        while (S.warm >= 1) {
+          S.warm -= 1;
+          const q = HEART[(Math.random() * HEART.length) | 0], r = t.heartR * S.hscale;
+          addSpark(t.heartC.x + q[0] * r, t.heartC.y + q[1] * r, rand(-0.02, 0.02) * D, -rand(0.03, 0.08) * D,
+            rand(1.6, 2.6), rand(4, 7) * U, 'peach', 0.2, -0.004);
+        }
+      }
     }
     if (!S.ended && tb >= TL.end) { S.ended = true; onEnd(); }
   }
@@ -666,7 +863,7 @@
         let n = 110 * dt + Math.random();
         while (n-- >= 1) {
           const a = rand(0, TAU), r = rand(0.12, 0.32) * D, life = 0.3;
-          addSpark(CX + Math.cos(a) * r, CY + Math.sin(a) * r, -Math.cos(a) * r / life, -Math.sin(a) * r / life, life, rand(3, 6) * U, 'warm', 0);
+          addSpark(CX + Math.cos(a) * r, CY + Math.sin(a) * r, -Math.cos(a) * r / life, -Math.sin(a) * r / life, life, rand(3, 6) * U, 'warm', 0, 0);
         }
       }
       if (k >= 1) boom();
@@ -674,7 +871,7 @@
 
     S.flash *= Math.exp(-3.2 * dt);
     S.shake *= Math.exp(-5 * dt);
-    if (S.tB < Infinity) textPhases(T - S.tB);
+    if (S.tB < Infinity) textPhases(T - S.tB, dt);
     updateParts(dt);
 
     if (S.ended && T >= S.nextAmbient) {
@@ -760,8 +957,12 @@
       let sz = p.sz, a = p.b;
       if (p.grp >= 0 && t) {
         const k = smooth((p.sAge - p.delay) / 0.9);
-        sz = lerp(p.sz0, t.dotEm * t.F, k);
-        if (k >= 1) a *= 0.82 + 0.18 * Math.sin(S.clock * (1.2 + (p.seed % 1.6)) + p.seed * 3);
+        sz = lerp(p.sz0, dotSize(p), k);
+        if (k >= 1) {
+          if (p.grp !== 4) a *= 0.82 + 0.18 * Math.sin(S.clock * (1.2 + (p.seed % 1.6)) + p.seed * 3);
+          else if (p.hk) a *= 0.85 + 0.3 * S.pulse;
+          else a *= (0.5 + 0.4 * Math.sin(S.clock * (0.9 + (p.seed % 2.2)) + p.seed * 5)) * (0.85 + 0.35 * S.pulse);
+        }
       }
       if (a < 0.01) continue;
       ctx.globalAlpha = Math.min(1, a);
@@ -788,20 +989,52 @@
   function drawGlyphs(tb) {
     const t = S.text;
     if (!t || !t.G || tb < TL.glyphIn) return;
-    const aIn = 0.24 * smooth(win(tb, TL.glyphIn, TL.glyphIn + 1.2));
+    const gone = 1 - smooth(win(tb, TL.wish, TL.wish + 0.9));
+    const aIn = 0.24 * smooth(win(tb, TL.glyphIn, TL.glyphIn + 1.2)) * gone;
     const sk = smooth(win(tb, TL.strike, TL.strike + 0.6));
     const qEnd = TL.pen + TL.penDur;
     const aQ = smooth(win(tb, qEnd - 0.3, qEnd + 1.1)) * (0.26 + 0.05 * Math.sin(S.clock * 2.2));
     blit(t.G[0], t.xN + S.off, t.base, aIn);
     blit(t.G[1], t.xL + S.off, t.base, aIn * (1 - 0.45 * sk));
-    blit(t.G[2], t.xQ + S.off, t.base, aQ);
+    blit(t.G[2], t.xQ + S.off, t.base, aQ * gone);
+    const w = t.wish;
+    if (w && w.G) {
+      // chữ sáng mờ dưới các hạt; khi hạt bay lên thành tim thì chữ hiện rõ
+      let a = 0.24 * smooth(win(tb, TL.wishGlyph, TL.wishGlyph + 1));
+      a = lerp(a, 0.86, smooth(win(tb, TL.heart + 0.3, TL.heart + 1.9)));
+      w.G.forEach((g, li) => blit(g, w.xs[li], w.y0 + S.glide + li * w.lh, a));
+    }
+  }
+  function drawHeartFx(tb) {
+    const t = S.text;
+    if (!t || !t.heart || tb < TL.beat - 0.8) return;
+    const on = smooth(win(tb, TL.beat - 0.8, TL.beat + 0.4));
+    const c = t.heartC, r = t.heartR * S.hscale;
+    const bs = 32 * r * 1.9;
+    ctx.globalAlpha = on * (0.55 + 0.35 * S.pulse);
+    ctx.drawImage(SPR.bloom, c.x - bs / 2, c.y - bs / 2, bs, bs);
+    if (tb >= TL.beat) {
+      const e = ((tb - TL.beat) % 1.3) / 1.15;
+      if (e < 1) {
+        ctx.globalAlpha = 0.4 * (1 - e) * (1 - e);
+        ctx.strokeStyle = `rgb(${RGB.rose})`;
+        ctx.lineWidth = 1.4 * U;
+        ctx.lineJoin = 'round';
+        heartPath(ctx, c.x, c.y, r * (1 + 0.45 * easeOut(e)));
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawStrike(tb) {
     if (tb < TL.strike) return;
+    const gone = 1 - smooth(win(tb, TL.wish, TL.wish + 0.6));
+    if (gone <= 0) return;
     const t = S.text;
     const sp = easeOut(win(tb, TL.strike, TL.strike + TL.strikeDur));
     ctx.save();
+    ctx.globalAlpha = gone;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(255,238,220,0.8)';
@@ -897,7 +1130,7 @@
     drawStars(1 - 0.4 * smooth(k));
     ctx.globalCompositeOperation = 'lighter';
     const tb = S.T - S.tB;
-    if (S.text) drawGlyphs(tb);
+    if (S.text) { drawGlyphs(tb); drawHeartFx(tb); }
     drawParts();
     drawSparks();
     drawMainMeteor(k);
@@ -932,7 +1165,7 @@
     if (!stars.length || ow !== W || Math.abs(oh - H) > 0.2 * H) makeStars();
     const oldL = buildPath();
     if (S.m.s > 0 && oldL > 1) S.m.s *= path.L / oldL;
-    if (S.text) layoutText();
+    if (S.text) { layoutText(); if (S.text.wish) layoutWish(); }
     if (ow) {
       const dx = CX - ocx, dy = CY - ocy;
       for (const p of S.parts) { p.x += dx; p.y += dy; }
@@ -963,12 +1196,10 @@
     startMusic();
   }
   function onEnd() {
-    if (CONFIG.footer) { footerEl.textContent = CONFIG.footer; footerEl.classList.add('show'); }
-    later(2.6, () => { hintEl.classList.add('show'); replayEl.classList.add('show'); });
+    later(1.6, () => { hintEl.classList.add('show'); replayEl.classList.add('show'); });
     S.nextAmbient = S.T + 1.6;
   }
   function replay() {
-    footerEl.classList.remove('show');
     hintEl.classList.remove('show');
     replayEl.classList.remove('show');
     S = fresh();
